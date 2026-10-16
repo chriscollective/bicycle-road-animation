@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>淡水單車路線（真實地圖）</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  /* 左側碼表式控制面板 + 右側 OpenStreetMap / CyclOSM 真實地圖 */
+  :root {
+    --bg: #eef1ec; --panel: #fbfcfa; --ink: #17241f; --muted: #5b6b64; --line: #d4dbd5;
+    --chip: #e2e8e3; --route-out: #ff5a1f; --route-back: #2c5cc5; --ghost: #17241f; --err: #b3261e;
+    --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #101614; --panel: #18201d; --ink: #e8efeb; --muted: #95a59e; --line: #2c3833;
+      --chip: #24302b; --route-out: #ff7440; --route-back: #6f96ff; --err: #ff8a80; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px;
+    padding: 20px max(16px, env(safe-area-inset-right)) 28px max(16px, env(safe-area-inset-left)); }
+  .wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--muted); }
+  h1 { margin: 2px 0 0; font-size: clamp(22px, 3vw, 32px); }
+
+  .app { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+  @media (max-width: 860px) { .app { grid-template-columns: minmax(0, 1fr); } #map { order: -1; height: 60vh; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 16px; align-content: start; min-width: 0; }
+  form { display: grid; gap: 12px; }
+  .field { display: grid; gap: 6px; }
+  .field > span, .label { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+  input[type="text"], input[type="time"] { width: 100%; font: inherit; font-size: 15px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; }
+  .od { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: end; }
+  .swap { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font-size: 16px; grid-row: span 2; align-self: center; }
+  .row2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: end; }
+  .check { display: flex; gap: 8px; align-items: center; cursor: pointer; padding-block: 9px; }
+  .check input { width: 18px; height: 18px; accent-color: var(--route-out); }
+  .pace { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .pace label { position: relative; text-align: center; padding: 8px 4px; cursor: pointer; font-size: 13px; line-height: 1.25; border-left: 1px solid var(--line); }
+  .pace label:first-child { border-left: 0; }
+  .pace input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .pace b { display: block; font-family: var(--font-display); font-size: 18px; }
+  .pace label:has(input:checked) { background: var(--ink); color: var(--panel); }
+  .go { font: inherit; font-weight: 700; font-size: 15px; padding: 12px; border: 0; border-radius: 10px; background: var(--route-out); color: #fff; cursor: pointer; }
+  .go:disabled { opacity: .6; cursor: progress; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--route-out); outline-offset: 2px; }
+  .status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin: 0; }
+  .status.err { color: var(--err); }
+
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; margin: 0; }
+  .stats dt { font-size: 12px; color: var(--muted); }
+  .stats dd { margin: 0; font-family: var(--font-display); font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stats dd small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+  .live { background: var(--chip); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+  .live-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .live-num { font-family: var(--font-display); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--route-out); }
+  .bar i.back { background: var(--route-back); }
+  .where { font-size: 13px; color: var(--muted); }
+  .stops { list-style: none; margin: 0; padding: 0; }
+  .stops li { display: grid; grid-template-columns: 14px minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); color: var(--muted); }
+  .stops li:last-child { border-bottom: 0; }
+  .stops .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted); }
+  .stops li.passed { color: var(--ink); }
+  .stops li.passed .dot { background: var(--route-out); border-color: var(--route-out); }
+  .stops li.passed.back .dot { background: var(--route-back); border-color: var(--route-back); }
+  .stops .km, .stops .eta { font-family: var(--font-display); font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stops .eta { min-width: 44px; text-align: right; }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
+
+  #map { min-height: 640px; border-radius: 14px; border: 1px solid var(--line); overflow: hidden; }
+  .bike-icon { width: 26px; height: 26px; border-radius: 50%; background: var(--route-out); border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); display: grid; place-items: center; color: #fff; font-size: 13px; }
+  .bike-icon.back { background: var(--route-back); }
+  .pin-label { font-family: var(--font-body); font-weight: 700; font-size: 13px; }
+  .replay-ctl { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 0; background: #fff; color: #17241f; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">OpenStreetMap · CyclOSM · OSRM 自行車路線</div>
+    <h1>單車騎乘路線規劃</h1>
+  </header>
+
+  <div class="app">
+    <aside class="panel">
+      <form id="planForm">
+        <div class="od">
+          <label class="field"><span>起點</span><input type="text" id="start" value="淡水捷運站" autocomplete="off"></label>
+          <button type="button" class="swap" id="swap" aria-label="交換起點與終點" title="交換起點與終點">⇅</button>
+          <label class="field"><span>終點</span><input type="text" id="end" value="白沙灣" autocomplete="off"></label>
+        </div>
+        <div class="row2">
+          <label class="field"><span>出發時間</span><input type="time" id="depart" value="08:00"></label>
+          <label class="check"><input type="checkbox" id="roundtrip" checked> 來回（騎回起點）</label>
+        </div>
+        <div class="field">
+          <span>騎乘配速</span>
+          <div class="pace" role="radiogroup" aria-label="騎乘配速">
+            <label><input type="radio" name="pace" value="15"><b>15</b>休閒 km/h</label>
+            <label><input type="radio" name="pace" value="18" checked><b>18</b>一般 km/h</label>
+            <label><input type="radio" name="pace" value="24"><b>24</b>進階 km/h</label>
+          </div>
+        </div>
+        <button class="go" id="go" type="submit">規劃並播放路線</button>
+        <p class="status" id="status">可輸入地名、地址，或「緯度,經度」。</p>
+      </form>
+
+      <dl class="stats">
+        <div><dt>總距離</dt><dd id="sDist">–</dd></div>
+        <div><dt>預估騎乘</dt><dd id="sTime">–</dd></div>
+        <div><dt id="sEtaLabel">回到起點</dt><dd id="sEta">–</dd></div>
+      </dl>
+
+      <div class="live" aria-live="polite">
+        <div class="live-top">
+          <span class="label">騎乘模擬</span>
+          <span class="live-num"><span id="lKm">0.0</span> km · <span id="lClock">08:00</span></span>
+        </div>
+        <div class="bar"><i id="lBar"></i></div>
+        <div class="where" id="lWhere">等待規劃</div>
+      </div>
+
+      <ol class="stops" id="stops"></ol>
+
+      <p class="note">路線由 OSRM 自行車模式依 OpenStreetMap 道路資料計算；時間依所選配速估算，未含休息與紅綠燈。</p>
+    </aside>
+
+    <div id="map"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ===== 常用地點（優先使用，避免地名查詢誤判）=====
+const KNOWN = {
+  '淡水捷運站': [25.16797, 121.44567], '淡水站': [25.16797, 121.44567],
+  '白沙灣': [25.28330, 121.51080], '淺水灣': [25.26330, 121.49720],
+  '漁人碼頭': [25.18320, 121.41070], '淡水漁人碼頭': [25.18320, 121.41070],
+  '紅毛城': [25.17530, 121.43290], '淡水老街': [25.17030, 121.43980],
+  '沙崙海灘': [25.18900, 121.41400], '富貴角燈塔': [25.29770, 121.53530],
+  '三芝': [25.25800, 121.50100], '關渡': [25.12560, 121.46710],
+};
+
+// ===== 地圖：CyclOSM（自行車專用開源圖磚）與 OSM 標準圖 =====
+const map = L.map('map', { zoomControl: true }).setView([25.225, 121.47], 12);
+const cyclosm = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
+  maxZoom: 20, subdomains: 'abc',
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> 貢獻者 · 圖磚 <a href="https://www.cyclosm.org">CyclOSM</a> · 路線 <a href="https://routing.openstreetmap.de">OSRM</a>',
+}).addTo(map);
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> 貢獻者 · 路線 <a href="https://routing.openstreetmap.de">OSRM</a>',
+});
+L.control.layers({ 'CyclOSM 自行車地圖': cyclosm, 'OpenStreetMap 標準': osm }, null, { position: 'topright' }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+
+// CyclOSM 圖磚載入失敗太多次時，自動切換成 OSM 標準圖
+let tileErrors = 0;
+cyclosm.on('tileerror', () => {
+  if (++tileErrors === 6 && map.hasLayer(cyclosm)) { map.removeLayer(cyclosm); osm.addTo(map); }
+});
+
+// 直接用 file:// 開啟時，瀏覽器不會送出來源網址，OSM 會拒絕圖磚與地點查詢
+if (location.protocol === 'file:') {
+  setTimeout(() => setStatus('請透過網頁伺服器開啟（例如 python -m http.server），直接開檔案會被 OpenStreetMap 擋下。', true), 0);
+}
+
+// 重播按鈕
+const Replay = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const b = L.DomUtil.create('button', 'replay-ctl');
+    b.type = 'button'; b.textContent = '▶ 重播動畫';
+    L.DomEvent.disableClickPropagation(b);
+    b.onclick = () => plan && animate();
+    return b;
+  },
+});
+map.addControl(new Replay());
+
+// ===== 工具 =====
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const pad2 = n => String(n).padStart(2, '0');
+const fmtDur = min => { const m = Math.round(min), h = Math.floor(m / 60); return h ? `${h}<small>時</small>${pad2(m % 60)}<small>分</small>` : `${m}<small>分</small>`; };
+const clockAt = (dep, plus) => { const t = Math.round(dep + plus) % 1440; return `${pad2(Math.floor(t / 60))}:${pad2(t % 60)}`; };
+function setStatus(msg, err) { const s = $('status'); s.textContent = msg; s.classList.toggle('err', !!err); }
+
+async function geocode(q) {
+  q = q.trim();
+  const m = q.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+  if (m) return { latlng: [+m[1], +m[3]], name: q };
+  if (KNOWN[q]) return { latlng: KNOWN[q], name: q };
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=tw&accept-language=zh-TW&q=' + encodeURIComponent(q);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`地點查詢失敗（${r.status}）`);
+  const j = await r.json();
+  if (!j.length) throw new Error(`找不到「${q}」，請換個寫法或輸入「緯度,經度」`);
+  return { latlng: [+j[0].lat, +j[0].lon], name: q };
+}
+
+async function route(a, b) {
+  const url = `https://routing.openstreetmap.de/routed-bike/route/v1/bike/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`路線計算失敗（${r.status}）`);
+  const j = await r.json();
+  if (j.code !== 'Ok' || !j.routes.length) throw new Error('兩點之間找不到可騎乘的路線');
+  return j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+}
+
+// ===== 圖層 =====
+let ghostOut, ghostBack, drawnOut, drawnBack, bike, pins = [], plan = null, anim = null;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function clearLayers() {
+  [ghostOut, ghostBack, drawnOut, drawnBack, bike, ...pins].forEach(l => l && map.removeLayer(l));
+  pins = [];
+}
+
+function bikeIcon(back) {
+  return L.divIcon({ className: '', html: `<div class="bike-icon${back ? ' back' : ''}">🚲</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+}
+
+// 取得沿線距離 km 處的位置與已走過的點
+function sliceTo(pts, cum, km) {
+  if (km <= 0) return [pts[0]];
+  let k = cum.findIndex(c => c >= km);
+  if (k === -1) return pts.slice();
+  const t = (km - cum[k - 1]) / (cum[k] - cum[k - 1] || 1);
+  const p = [pts[k - 1][0] + (pts[k][0] - pts[k - 1][0]) * t, pts[k - 1][1] + (pts[k][1] - pts[k - 1][1]) * t];
+  return pts.slice(0, k).concat([p]);
+}
+function cumulative(pts) {
+  const c = [0];
+  for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + map.distance(pts[i - 1], pts[i]) / 1000);
+  return c;
+}
+
+// ===== 規劃 =====
+async function planRoute() {
+  const go = $('go');
+  go.disabled = true;
+  setStatus('查詢地點中…');
+  try {
+    const [A, B] = await Promise.all([geocode($('start').value), geocode($('end').value)]);
+    setStatus('計算自行車路線中…');
+    const round = $('roundtrip').checked;
+    const [out, back] = await Promise.all([route(A.latlng, B.latlng), round ? route(B.latlng, A.latlng) : Promise.resolve(null)]);
+
+    const outCum = cumulative(out);
+    const backCum = back ? cumulative(back) : null;
+    const outKm = outCum[outCum.length - 1];
+    const total = outKm + (back ? backCum[backCum.length - 1] : 0);
+    const speed = +document.querySelector('input[name="pace"]:checked').value;
+    const [dh, dm] = ($('depart').value || '08:00').split(':').map(Number);
+
+    plan = { A, B, out, back, outCum, backCum, outKm, total, speed, depart: dh * 60 + dm, round };
+    drawStatic();
+    renderSummary();
+    setStatus(`已規劃：${A.name} → ${B.name}${round ? ' → ' + A.name : ''}`);
+    animate();
+  } catch (e) {
+    setStatus(e.message || '發生錯誤，請稍後再試', true);
+  } finally {
+    go.disabled = false;
+  }
+}
+
+function drawStatic() {
+  clearLayers();
+  const p = plan;
+  ghostOut = L.polyline(p.out, { color: css('--route-out'), weight: 7, opacity: 0.25 }).addTo(map);
+  if (p.back) ghostBack = L.polyline(p.back, { color: css('--route-back'), weight: 7, opacity: 0.25, dashArray: '2 10' }).addTo(map);
+  drawnOut = L.polyline([], { color: css('--route-out'), weight: 5, opacity: 0.95 }).addTo(map);
+  drawnBack = L.polyline([], { color: css('--route-back'), weight: 5, opacity: 0.95 }).addTo(map);
+  for (const [pt, name, color] of [[p.A.latlng, p.A.name, '#17241f'], [p.B.latlng, p.B.name, css('--route-out')]]) {
+    pins.push(L.circleMarker(pt, { radius: 8, color: '#fff', weight: 3, fillColor: color, fillOpacity: 1 })
+      .bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -8], className: 'pin-label' }).addTo(map));
+  }
+  bike = L.marker(p.out[0], { icon: bikeIcon(false), zIndexOffset: 1000 }).addTo(map);
+  map.fitBounds(ghostOut.getBounds().pad(0.12));
+}
+
+function checkpoints() {
+  const p = plan, list = [{ name: `${p.A.name}（出發）`, km: 0 }];
+  for (let k = 5; k < p.total - 1; k += 5) list.push({ name: `${k} km`, km: k, back: k > p.outKm });
+  list.push({ name: p.round ? `${p.B.name}（折返）` : `${p.B.name}（抵達）`, km: p.outKm });
+  if (p.round) list.push({ name: `${p.A.name}（回到起點）`, km: p.total, back: true });
+  return list.sort((a, b) => a.km - b.km);
+}
+
+function renderSummary() {
+  const p = plan, min = p.total / p.speed * 60;
+  $('sDist').innerHTML = `${p.total.toFixed(1)}<small>km</small>`;
+  $('sTime').innerHTML = fmtDur(min);
+  $('sEtaLabel').textContent = p.round ? '回到起點' : '預計抵達';
+  $('sEta').textContent = clockAt(p.depart, min);
+  p.cps = checkpoints();
+  $('stops').innerHTML = p.cps.map(c =>
+    `<li class="${c.back ? 'back' : ''}"><span class="dot"></span><span>${c.name}</span><span class="km">${c.km.toFixed(1)} km</span><span class="eta">${clockAt(p.depart, c.km / p.speed * 60)}</span></li>`
+  ).join('');
+}
+
+function setProgress(km) {
+  const p = plan, onBack = p.round && km > p.outKm;
+  drawnOut.setLatLngs(sliceTo(p.out, p.outCum, Math.min(km, p.outKm)));
+  const backPts = onBack ? sliceTo(p.back, p.backCum, km - p.outKm) : [];
+  drawnBack.setLatLngs(backPts);
+  const pos = onBack ? backPts[backPts.length - 1] : drawnOut.getLatLngs().slice(-1)[0];
+  bike.setLatLng(pos);
+  bike.setIcon(bikeIcon(onBack));
+
+  $('lKm').textContent = km.toFixed(1);
+  $('lClock').textContent = clockAt(p.depart, km / p.speed * 60);
+  const bar = $('lBar');
+  bar.style.width = (km / p.total * 100) + '%';
+  bar.classList.toggle('back', onBack);
+  const lis = document.querySelectorAll('#stops li');
+  p.cps.forEach((c, i) => lis[i].classList.toggle('passed', km >= c.km - 1e-6));
+  $('lWhere').textContent = km >= p.total - 1e-6
+    ? `完成！共 ${p.total.toFixed(1)} km`
+    : km === 0 ? `準備從${p.A.name}出發` : `${onBack ? '回程' : '去程'}中，剩 ${(p.total - km).toFixed(1)} km`;
+}
+
+function animate() {
+  if (anim) cancelAnimationFrame(anim);
+  const p = plan;
+  if (reduceMotion) { setProgress(p.total); return; }
+  const dur = Math.min(14000, Math.max(5000, p.total * 280));
+  const t0 = performance.now();
+  const tick = now => {
+    const t = Math.min(1, (now - t0) / dur);
+    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    setProgress(p.total * e);
+    if (t < 1) anim = requestAnimationFrame(tick);
+  };
+  setProgress(0);
+  anim = requestAnimationFrame(tick);
+}
+
+// ===== 事件 =====
+$('planForm').addEventListener('submit', e => { e.preventDefault(); planRoute(); });
+$('swap').addEventListener('click', () => { const s = $('start'), e = $('end'); [s.value, e.value] = [e.value, s.value]; planRoute(); });
+// 地圖上點一下 → 設為終點
+map.on('click', e => { $('end').value = `${e.latlng.lat.toFixed(5)},${e.latlng.lng.toFixed(5)}`; setStatus('已把點選位置設為終點，按「規劃並播放路線」即可重新計算'); });
+
+planRoute();
+</script>
+</body>
+</html>
