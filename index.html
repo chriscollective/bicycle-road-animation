@@ -217,6 +217,9 @@ async function route(a, b) {
 
 // ===== 圖層 =====
 let ghostOut, ghostBack, drawnOut, drawnBack, bike, pins = [], plan = null, anim = null;
+// 鏡頭跟隨：重播時若地圖比總覽放大，鏡頭就跟著單車移動
+let overviewZoom = 0, following = false;
+map.on('dragstart', () => { following = false; }); // 使用者自己拖曳地圖時停止跟隨
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function clearLayers() {
@@ -285,7 +288,9 @@ function drawStatic() {
       .bindTooltip(name, { permanent: true, direction: 'top', offset: [0, -8], className: 'pin-label' }).addTo(map));
   }
   bike = L.marker(p.out[0], { icon: bikeIcon(false), zIndexOffset: 1000 }).addTo(map);
-  map.fitBounds(ghostOut.getBounds().pad(0.12));
+  const bounds = ghostOut.getBounds().pad(0.12);
+  overviewZoom = map.getBoundsZoom(bounds);
+  map.fitBounds(bounds);
 }
 
 function checkpoints() {
@@ -316,6 +321,7 @@ function setProgress(km) {
   const pos = onBack ? backPts[backPts.length - 1] : drawnOut.getLatLngs().slice(-1)[0];
   bike.setLatLng(pos);
   bike.setIcon(bikeIcon(onBack));
+  if (following) map.panTo(pos, { animate: false });
 
   $('lKm').textContent = km.toFixed(1);
   $('lClock').textContent = clockAt(p.depart, km / p.speed * 60);
@@ -326,13 +332,19 @@ function setProgress(km) {
   p.cps.forEach((c, i) => lis[i].classList.toggle('passed', km >= c.km - 1e-6));
   $('lWhere').textContent = km >= p.total - 1e-6
     ? `完成！共 ${p.total.toFixed(1)} km`
-    : km === 0 ? `準備從${p.A.name}出發` : `${onBack ? '回程' : '去程'}中，剩 ${(p.total - km).toFixed(1)} km`;
+    : km === 0 ? `準備從${p.A.name}出發` : `${onBack ? '回程' : '去程'}中，剩 ${(p.total - km).toFixed(1)} km${following ? '（鏡頭跟隨中）' : ''}`;
 }
 
 function animate() {
   if (anim) cancelAnimationFrame(anim);
   const p = plan;
+  following = false;
   if (reduceMotion) { setProgress(p.total); return; }
+  // 比總覽放大時才跟隨，並先把鏡頭移到起點（保持目前的縮放）
+  if (map.getZoom() > overviewZoom) {
+    following = true;
+    map.setView(p.out[0], map.getZoom(), { animate: false });
+  }
   const dur = Math.min(14000, Math.max(5000, p.total * 280));
   const t0 = performance.now();
   const tick = now => {
@@ -340,6 +352,7 @@ function animate() {
     const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
     setProgress(p.total * e);
     if (t < 1) anim = requestAnimationFrame(tick);
+    else { following = false; setProgress(p.total); }
   };
   setProgress(0);
   anim = requestAnimationFrame(tick);
