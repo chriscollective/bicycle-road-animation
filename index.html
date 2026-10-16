@@ -41,7 +41,7 @@
   .row2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: end; }
   .check { display: flex; gap: 8px; align-items: center; cursor: pointer; padding-block: 9px; }
   .check input { width: 18px; height: 18px; accent-color: var(--route-out); }
-  .pace { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .pace { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .pace label { position: relative; text-align: center; padding: 8px 4px; cursor: pointer; font-size: 13px; line-height: 1.25; border-left: 1px solid var(--line); }
   .pace label:first-child { border-left: 0; }
   .pace input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
@@ -102,11 +102,12 @@
           <label class="check"><input type="checkbox" id="roundtrip" checked> 來回（騎回起點）</label>
         </div>
         <div class="field">
-          <span>騎乘配速</span>
+          <span>騎乘配速（km/h）</span>
           <div class="pace" role="radiogroup" aria-label="騎乘配速">
-            <label><input type="radio" name="pace" value="15"><b>15</b>休閒 km/h</label>
-            <label><input type="radio" name="pace" value="18" checked><b>18</b>一般 km/h</label>
-            <label><input type="radio" name="pace" value="24"><b>24</b>進階 km/h</label>
+            <label><input type="radio" name="pace" value="10" checked><b>10</b>休閒</label>
+            <label><input type="radio" name="pace" value="12"><b>12</b>輕鬆</label>
+            <label><input type="radio" name="pace" value="15"><b>15</b>一般</label>
+            <label><input type="radio" name="pace" value="18"><b>18</b>進階</label>
           </div>
         </div>
         <button class="go" id="go" type="submit">規劃並播放路線</button>
@@ -360,6 +361,13 @@ function animate() {
 
 // ===== 事件 =====
 $('planForm').addEventListener('submit', e => { e.preventDefault(); planRoute(); });
+// 切換配速時直接重算時間並重播，不必重新查路線
+document.querySelectorAll('input[name="pace"]').forEach(r => r.addEventListener('change', () => {
+  if (!plan) return;
+  plan.speed = +r.value;
+  renderSummary();
+  animate();
+}));
 $('swap').addEventListener('click', () => { const s = $('start'), e = $('end'); [s.value, e.value] = [e.value, s.value]; planRoute(); });
 // 地圖上點一下 → 設為終點
 map.on('click', e => { $('end').value = `${e.latlng.lat.toFixed(5)},${e.latlng.lng.toFixed(5)}`; setStatus('已把點選位置設為終點，按「規劃並播放路線」即可重新計算'); });
