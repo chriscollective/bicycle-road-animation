@@ -2,6 +2,8 @@
 
 輸入起點與終點，在開源地圖上以動畫畫出自行車騎乘路線，並估算距離、騎乘時間與各段抵達時刻。預設路線為「淡水捷運站 → 白沙灣 → 淡水捷運站」。
 
+**線上展示：<https://chriscollective.github.io/bicycle-road-animation/>**
+
 ## 功能
 
 - 地圖底圖：[CyclOSM](https://www.cyclosm.org)（自行車專用圖磚）與 [OpenStreetMap](https://www.openstreetmap.org) 標準圖，可切換
