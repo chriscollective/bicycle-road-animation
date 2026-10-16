@@ -48,7 +48,9 @@
   .pace b { display: block; font-family: var(--font-display); font-size: 18px; }
   .pace label:has(input:checked) { background: var(--ink); color: var(--panel); }
   .go { font: inherit; font-weight: 700; font-size: 15px; padding: 12px; border: 0; border-radius: 10px; background: var(--route-out); color: #fff; cursor: pointer; }
-  .go:disabled { opacity: .6; cursor: progress; }
+  .go:disabled, .plan-btn:disabled { opacity: .6; cursor: not-allowed; }
+  .actions { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 8px; }
+  .plan-btn { font: inherit; font-weight: 700; font-size: 15px; padding: 12px; border-radius: 10px; border: 1px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--route-out); outline-offset: 2px; }
   .status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin: 0; }
   .status.err { color: var(--err); }
@@ -110,7 +112,10 @@
             <label><input type="radio" name="pace" value="18"><b>18</b>進階</label>
           </div>
         </div>
-        <button class="go" id="go" type="submit">規劃並播放路線</button>
+        <div class="actions">
+          <button class="plan-btn" id="go" type="submit">規劃路線</button>
+          <button class="go" id="play" type="button" disabled>▶ 播放動畫</button>
+        </div>
         <p class="status" id="status">可輸入地名、地址，或「緯度,經度」。</p>
       </form>
 
@@ -178,7 +183,7 @@ const Replay = L.Control.extend({
   options: { position: 'topleft' },
   onAdd() {
     const b = L.DomUtil.create('button', 'replay-ctl');
-    b.type = 'button'; b.textContent = '▶ 重播動畫';
+    b.type = 'button'; b.textContent = '▶ 播放';
     L.DomEvent.disableClickPropagation(b);
     b.onclick = () => plan && animate();
     return b;
@@ -268,8 +273,10 @@ async function planRoute() {
     plan = { A, B, out, back, outCum, backCum, outKm, total, speed, depart: dh * 60 + dm, round };
     drawStatic();
     renderSummary();
-    setStatus(`已規劃：${A.name} → ${B.name}${round ? ' → ' + A.name : ''}`);
-    animate();
+    setStatus(`已規劃：${A.name} → ${B.name}${round ? ' → ' + A.name : ''}，按「▶ 播放動畫」開始`);
+    if (anim) cancelAnimationFrame(anim);
+    setProgress(0);
+    $('play').disabled = false;
   } catch (e) {
     setStatus(e.message || '發生錯誤，請稍後再試', true);
   } finally {
@@ -361,12 +368,15 @@ function animate() {
 
 // ===== 事件 =====
 $('planForm').addEventListener('submit', e => { e.preventDefault(); planRoute(); });
-// 切換配速時直接重算時間並重播，不必重新查路線
+$('play').addEventListener('click', () => plan && animate());
+// 切換配速時直接重算時間（不重查路線、不自動播放）
 document.querySelectorAll('input[name="pace"]').forEach(r => r.addEventListener('change', () => {
   if (!plan) return;
   plan.speed = +r.value;
+  if (anim) cancelAnimationFrame(anim);
+  following = false;
   renderSummary();
-  animate();
+  setProgress(0);
 }));
 $('swap').addEventListener('click', () => { const s = $('start'), e = $('end'); [s.value, e.value] = [e.value, s.value]; planRoute(); });
 // 地圖上點一下 → 設為終點
